@@ -79,13 +79,6 @@ Edit `.env` with your values:
 | `POLYMARKET_BUILDER_API_KEY` | Builder relayer API key (for gasless redeems) |
 | `POLYMARKET_BUILDER_SECRET` | Builder relayer secret |
 | `POLYMARKET_BUILDER_PASSPHRASE` | Builder relayer passphrase |
-| `BOT_SESSION_CAPITAL_LIMIT` | Max capital per session (default: $100) |
-| `BOT_SHARES_PER_ORDER` | Shares per order (default: 10) |
-| `BOT_DAILY_LOSS_LIMIT` | Daily loss limit |
-| `BOT_HOURLY_LOSS_LIMIT` | Hourly loss limit |
-| `BOT_WORST_CASE_PNL_LIMIT` | Worst-case P&L limit |
-| `BOT_UNHEDGED_EXPOSURE_LIMIT` | Max unhedged exposure |
-
 Builder relayer credentials are optional — without them, auto-redeem is disabled and you redeem manually.
 
 ## Usage
