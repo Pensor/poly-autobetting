@@ -31,9 +31,9 @@ logging.basicConfig(
 log = logging.getLogger("place45")
 
 # --- Config ---
-PRICE = 0.45
-SHARES_PER_SIDE = 100
-BAIL_PRICE = 0.72        # if one side > 72c and other side unfilled → bail out
+PRICE = float(os.getenv("BOT_PRICE", "0.45"))
+SHARES_PER_SIDE = float(os.getenv("BOT_SHARES_PER_ORDER", "100"))
+BAIL_PRICE = float(os.getenv("BOT_BAIL_PRICE", "0.72"))
 GAMMA_URL = "https://gamma-api.polymarket.com"
 REF_15M = 1771268400     # known 15m epoch anchor
 CTF_ADDRESS = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045"
@@ -104,14 +104,20 @@ def init_clob_client():
 
 def init_relayer():
     """Initialize builder relayer client for gasless redeems."""
-    from py_builder_relayer_client.client import RelayClient
-    from py_builder_signing_sdk.config import BuilderConfig, BuilderApiKeyCreds
-
     bk = os.getenv("POLYMARKET_BUILDER_API_KEY", "")
     bs = os.getenv("POLYMARKET_BUILDER_SECRET", "")
     bp = os.getenv("POLYMARKET_BUILDER_PASSPHRASE", "")
+
     if not (bk and bs and bp):
         log.warning("No builder creds — auto-redeem disabled")
+        return None
+
+    try:
+        from py_builder_relayer_client.client import RelayClient
+        from py_builder_signing_sdk.config import BuilderConfig, BuilderApiKeyCreds
+    except ImportError:
+        log.warning("Builder relayer packages not installed — auto-redeem disabled")
+        log.info("  Install with: pip install -r requirements-relayer.txt")
         return None
 
     builder_config = BuilderConfig(

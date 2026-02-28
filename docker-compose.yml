@@ -1,0 +1,44 @@
+services:
+  bot:
+    build:
+      context: .
+      args:
+        # Set to 1 to enable gasless redemptions via builder relayer
+        # Requires POLYMARKET_BUILDER_* credentials in .env
+        INSTALL_RELAYER: 1
+    container_name: poly-autobetting
+    restart: unless-stopped
+    environment:
+      # Credentials (load from .env file or set explicitly)
+      - POLYMARKET_PRIVATE_KEY=${POLYMARKET_PRIVATE_KEY}
+      - POLYMARKET_FUNDER=${POLYMARKET_FUNDER}
+      - POLYMARKET_API_KEY=${POLYMARKET_API_KEY}
+      - POLYMARKET_API_SECRET=${POLYMARKET_API_SECRET}
+      - POLYMARKET_PASSPHRASE=${POLYMARKET_PASSPHRASE}
+      - POLYMARKET_BUILDER_API_KEY=${POLYMARKET_BUILDER_API_KEY}
+      - POLYMARKET_BUILDER_SECRET=${POLYMARKET_BUILDER_SECRET}
+      - POLYMARKET_BUILDER_PASSPHRASE=${POLYMARKET_BUILDER_PASSPHRASE}
+
+      # Bot configuration (optional - set to override defaults)
+      # - BOT_SESSION_CAPITAL_LIMIT=300.0
+      - BOT_SHARES_PER_ORDER=10.0
+      # - BOT_STRATEGY=active
+
+    # Volume for state persistence (optional)
+    volumes:
+      - ./state:/app/state
+
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # Health check (optional)
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

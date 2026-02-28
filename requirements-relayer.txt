@@ -1,0 +1,5 @@
+# Optional dependencies for gasless redemptions via builder relayer
+# Install with: pip install -r requirements-relayer.txt
+
+py-builder-relayer-client
+py-builder-signing-sdk
