@@ -21,13 +21,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.bot.ws_book_feed import WSBookFeed
 
 from dotenv import load_dotenv
-load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
+
+load_dotenv(
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+)
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(message)s",
     datefmt="%H:%M:%S",
 )
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 log = logging.getLogger("place45")
 
 # --- Config ---
@@ -35,7 +40,7 @@ PRICE = float(os.getenv("BOT_PRICE", "0.45"))
 SHARES_PER_SIDE = float(os.getenv("BOT_SHARES_PER_ORDER", "100"))
 BAIL_PRICE = float(os.getenv("BOT_BAIL_PRICE", "0.72"))
 GAMMA_URL = "https://gamma-api.polymarket.com"
-REF_15M = 1771268400     # known 15m epoch anchor
+REF_15M = 1771268400  # known 15m epoch anchor
 CTF_ADDRESS = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045"
 USDC_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
 
@@ -61,7 +66,11 @@ async def get_market_info(slug: str) -> dict:
     if not data:
         raise ValueError(f"No event found for slug: {slug}")
     m = data[0]["markets"][0]
-    tokens = json.loads(m["clobTokenIds"]) if isinstance(m["clobTokenIds"], str) else m["clobTokenIds"]
+    tokens = (
+        json.loads(m["clobTokenIds"])
+        if isinstance(m["clobTokenIds"], str)
+        else m["clobTokenIds"]
+    )
     return {
         "up_token": tokens[0],
         "dn_token": tokens[1],
@@ -94,7 +103,9 @@ def init_clob_client():
     passphrase = os.getenv("POLYMARKET_PASSPHRASE", "")
 
     if api_key and api_secret and passphrase:
-        creds = ApiCreds(api_key=api_key, api_secret=api_secret, api_passphrase=passphrase)
+        creds = ApiCreds(
+            api_key=api_key, api_secret=api_secret, api_passphrase=passphrase
+        )
     else:
         creds = client.derive_api_key()
         log.info("Derived API creds from private key")
@@ -195,10 +206,13 @@ def cancel_market_orders(client, token_ids: set):
     """Cancel all live orders for the given token IDs."""
     try:
         orders = client.get_orders()
-        to_cancel = [o["id"] for o in orders
-                     if o.get("status") == "LIVE"
-                     and o.get("asset_id") in token_ids
-                     and "id" in o]
+        to_cancel = [
+            o["id"]
+            for o in orders
+            if o.get("status") == "LIVE"
+            and o.get("asset_id") in token_ids
+            and "id" in o
+        ]
         if to_cancel:
             client.cancel_orders(to_cancel)
             log.info("  Cancelled %d order(s)", len(to_cancel))
@@ -239,15 +253,23 @@ async def check_bail_out(client, ws_feed: WSBookFeed, past_markets: dict):
         bail = False
         # DN expensive (DN winning) + we only hold UP (DN unfilled) → sell UP
         if dn_ask > BAIL_PRICE and dn_bal == 0 and up_bal > 0:
-            log.info("  BAIL: DN ask=%.2f > %.2f, DN unfilled. Selling UP %.0f shares",
-                     dn_ask, BAIL_PRICE, up_bal)
+            log.info(
+                "  BAIL: DN ask=%.2f > %.2f, DN unfilled. Selling UP %.0f shares",
+                dn_ask,
+                BAIL_PRICE,
+                up_bal,
+            )
             cancel_market_orders(client, {up_token, dn_token})
             sell_at_bid(client, up_token, up_bal, "UP")
             bail = True
         # UP expensive (UP winning) + we only hold DN (UP unfilled) → sell DN
         elif up_ask > BAIL_PRICE and up_bal == 0 and dn_bal > 0:
-            log.info("  BAIL: UP ask=%.2f > %.2f, UP unfilled. Selling DN %.0f shares",
-                     up_ask, BAIL_PRICE, dn_bal)
+            log.info(
+                "  BAIL: UP ask=%.2f > %.2f, UP unfilled. Selling DN %.0f shares",
+                up_ask,
+                BAIL_PRICE,
+                dn_bal,
+            )
             cancel_market_orders(client, {up_token, dn_token})
             sell_at_bid(client, dn_token, dn_bal, "DN")
             bail = True
@@ -267,7 +289,9 @@ def redeem_market(relayer, condition_id: str, neg_risk: bool) -> bool:
         # We don't know exact amounts, but we can pass max uint for both
         # Actually for neg-risk we need the adapter address and different encoding
         NEG_RISK_ADAPTER = "0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296"
-        cond_bytes = bytes.fromhex(condition_id[2:] if condition_id.startswith("0x") else condition_id)
+        cond_bytes = bytes.fromhex(
+            condition_id[2:] if condition_id.startswith("0x") else condition_id
+        )
         # Pass [max, max] — contract will only burn what's available
         max_uint = 2**256 - 1
         selector = Web3.keccak(text="redeemPositions(bytes32,uint256[])")[:4]
@@ -275,8 +299,12 @@ def redeem_market(relayer, condition_id: str, neg_risk: bool) -> bool:
         target = NEG_RISK_ADAPTER
     else:
         # CTF.redeemPositions(address, bytes32, bytes32, uint256[])
-        cond_bytes = bytes.fromhex(condition_id[2:] if condition_id.startswith("0x") else condition_id)
-        selector = Web3.keccak(text="redeemPositions(address,bytes32,bytes32,uint256[])")[:4]
+        cond_bytes = bytes.fromhex(
+            condition_id[2:] if condition_id.startswith("0x") else condition_id
+        )
+        selector = Web3.keccak(
+            text="redeemPositions(address,bytes32,bytes32,uint256[])"
+        )[:4]
         params = encode(
             ["address", "bytes32", "bytes32", "uint256[]"],
             [USDC_ADDRESS, b"\x00" * 32, cond_bytes, [1, 2]],
@@ -284,7 +312,9 @@ def redeem_market(relayer, condition_id: str, neg_risk: bool) -> bool:
         target = CTF_ADDRESS
 
     calldata = "0x" + (selector + params).hex()
-    tx = SafeTransaction(to=target, operation=OperationType.Call, data=calldata, value="0")
+    tx = SafeTransaction(
+        to=target, operation=OperationType.Call, data=calldata, value="0"
+    )
 
     try:
         resp = relayer.execute([tx], "Redeem positions")
@@ -298,7 +328,9 @@ def redeem_market(relayer, condition_id: str, neg_risk: bool) -> bool:
                 status = status[0]
             state = status.get("state", "")
             if "CONFIRMED" in state:
-                log.info("  Redeem CONFIRMED: %s", status.get("transactionHash", "")[:20])
+                log.info(
+                    "  Redeem CONFIRMED: %s", status.get("transactionHash", "")[:20]
+                )
                 return True
             if "FAILED" in state or "INVALID" in state:
                 log.error("  Redeem FAILED: %s", status.get("errorMsg", "")[:80])
@@ -313,9 +345,12 @@ def redeem_market(relayer, condition_id: str, neg_risk: bool) -> bool:
 def check_token_balance(client, token_id: str) -> float:
     """Check CTF token balance via CLOB API (returns shares)."""
     from py_clob_client.clob_types import BalanceAllowanceParams, AssetType
+
     try:
         bal = client.get_balance_allowance(
-            BalanceAllowanceParams(asset_type=AssetType.CONDITIONAL, token_id=token_id, signature_type=2)
+            BalanceAllowanceParams(
+                asset_type=AssetType.CONDITIONAL, token_id=token_id, signature_type=2
+            )
         )
         return int(bal.get("balance", "0")) / 1e6
     except Exception:
@@ -342,14 +377,16 @@ async def try_redeem_all(client, relayer, past_markets: dict):
             continue  # not resolved yet
 
         # Check if we hold any tokens
-        up_bal = check_token_balance(client,mkt["up_token"])
-        dn_bal = check_token_balance(client,mkt["dn_token"])
+        up_bal = check_token_balance(client, mkt["up_token"])
+        dn_bal = check_token_balance(client, mkt["dn_token"])
 
         if up_bal <= 0 and dn_bal <= 0:
             info["redeemed"] = True  # nothing to redeem
             continue
 
-        log.info("  Redeeming %s (UP=%.1f, DN=%.1f)...", mkt["title"][:50], up_bal, dn_bal)
+        log.info(
+            "  Redeeming %s (UP=%.1f, DN=%.1f)...", mkt["title"][:50], up_bal, dn_bal
+        )
         ok = redeem_market(relayer, mkt["conditionId"], mkt.get("neg_risk", False))
         if ok:
             info["redeemed"] = True
@@ -433,22 +470,38 @@ async def run():
             up_bal = check_token_balance(client, mkt["up_token"])
             dn_bal = check_token_balance(client, mkt["dn_token"])
             if up_bal > 0 or dn_bal > 0:
-                log.info("  Already have position (UP=%.1f, DN=%.1f) — skipping", up_bal, dn_bal)
+                log.info(
+                    "  Already have position (UP=%.1f, DN=%.1f) — skipping",
+                    up_bal,
+                    dn_bal,
+                )
                 placed_markets.add(ts)
-                past_markets[ts] = {"redeemed": False, "up_token": mkt["up_token"], "dn_token": mkt["dn_token"]}
+                past_markets[ts] = {
+                    "redeemed": False,
+                    "up_token": mkt["up_token"],
+                    "dn_token": mkt["dn_token"],
+                }
                 continue
 
             # Skip if we already have live orders on this market
             try:
                 live_orders = client.get_orders()
                 market_tokens = {mkt["up_token"], mkt["dn_token"]}
-                existing = [o for o in live_orders
-                            if o.get("status") == "LIVE"
-                            and o.get("asset_id") in market_tokens]
+                existing = [
+                    o
+                    for o in live_orders
+                    if o.get("status") == "LIVE" and o.get("asset_id") in market_tokens
+                ]
                 if existing:
-                    log.info("  Already have %d live order(s) — skipping", len(existing))
+                    log.info(
+                        "  Already have %d live order(s) — skipping", len(existing)
+                    )
                     placed_markets.add(ts)
-                    past_markets[ts] = {"redeemed": False, "up_token": mkt["up_token"], "dn_token": mkt["dn_token"]}
+                    past_markets[ts] = {
+                        "redeemed": False,
+                        "up_token": mkt["up_token"],
+                        "dn_token": mkt["dn_token"],
+                    }
                     continue
             except Exception:
                 pass  # if check fails, proceed with placement
@@ -457,11 +510,19 @@ async def run():
             dn_id = place_order(client, mkt["dn_token"], "DOWN", SHARES_PER_SIDE, PRICE)
 
             placed = (1 if up_id else 0) + (1 if dn_id else 0)
-            log.info("  Done: %d orders placed. Max cost: $%.2f", placed, SHARES_PER_SIDE * PRICE * 2)
+            log.info(
+                "  Done: %d orders placed. Max cost: $%.2f",
+                placed,
+                SHARES_PER_SIDE * PRICE * 2,
+            )
             log.info("")
 
             placed_markets.add(ts)
-            past_markets[ts] = {"redeemed": False, "up_token": mkt["up_token"], "dn_token": mkt["dn_token"]}
+            past_markets[ts] = {
+                "redeemed": False,
+                "up_token": mkt["up_token"],
+                "dn_token": mkt["dn_token"],
+            }
 
         # Log WS prices for active markets
         for ts, info in past_markets.items():
@@ -470,11 +531,15 @@ async def run():
             up_ask = ws_feed.get_best_ask(info.get("up_token", ""))
             dn_ask = ws_feed.get_best_ask(info.get("dn_token", ""))
             if up_ask is not None or dn_ask is not None:
-                log.info("  [%d] WS prices: UP ask=%.2f  DN ask=%.2f",
-                         ts, up_ask or 0, dn_ask or 0)
+                log.info(
+                    "  [%d] WS prices: UP ask=%.2f  DN ask=%.2f",
+                    ts,
+                    up_ask or 0,
+                    dn_ask or 0,
+                )
 
         # Bail-out disabled — holding through resolution is +EV at 45c entry
-        # await check_bail_out(client, ws_feed, past_markets)
+        await check_bail_out(client, ws_feed, past_markets)
 
         # Try redeeming resolved markets
         await try_redeem_all(client, relayer, past_markets)
