@@ -525,18 +525,18 @@ async def run():
             }
 
         # Log WS prices for active markets
-        for ts, info in past_markets.items():
-            if info.get("bailed") or info.get("redeemed"):
-                continue
-            up_ask = ws_feed.get_best_ask(info.get("up_token", ""))
-            dn_ask = ws_feed.get_best_ask(info.get("dn_token", ""))
-            if up_ask is not None or dn_ask is not None:
-                log.info(
-                    "  [%d] WS prices: UP ask=%.2f  DN ask=%.2f",
-                    ts,
-                    up_ask or 0,
-                    dn_ask or 0,
-                )
+        # for ts, info in past_markets.items():
+        #     if info.get("bailed") or info.get("redeemed"):
+        #         continue
+        #     up_ask = ws_feed.get_best_ask(info.get("up_token", ""))
+        #     dn_ask = ws_feed.get_best_ask(info.get("dn_token", ""))
+        #     if up_ask is not None or dn_ask is not None:
+        #         log.info(
+        #             "  [%d] WS prices: UP ask=%.2f  DN ask=%.2f",
+        #             ts,
+        #             up_ask or 0,
+        #             dn_ask or 0,
+        #         )
 
         # Bail-out disabled — holding through resolution is +EV at 45c entry
         await check_bail_out(client, ws_feed, past_markets)
