@@ -15,14 +15,6 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
     pip install --no-cache-dir -r requirements.txt
 
-# Optionally install relayer dependencies for gasless redemptions
-# To use: docker build --build-arg INSTALL_RELAYER=1 .
-ARG INSTALL_RELAYER=0
-COPY requirements-relayer.txt .
-RUN if [ "$INSTALL_RELAYER" = "1" ]; then \
-    pip install --no-cache-dir -r requirements-relayer.txt; \
-    fi
-
 # Copy project code and set ownership
 COPY . .
 RUN chown -R botuser:botuser /app
