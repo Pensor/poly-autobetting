@@ -123,13 +123,8 @@ def init_relayer():
         log.warning("No builder creds — auto-redeem disabled")
         return None
 
-    try:
-        from py_builder_relayer_client.client import RelayClient
-        from py_builder_signing_sdk.config import BuilderConfig, BuilderApiKeyCreds
-    except ImportError:
-        log.warning("Builder relayer packages not installed — auto-redeem disabled")
-        log.info("  Install with: pip install -r requirements-relayer.txt")
-        return None
+    from py_builder_relayer_client.client import RelayClient
+    from py_builder_signing_sdk.config import BuilderConfig, BuilderApiKeyCreds
 
     builder_config = BuilderConfig(
         local_builder_creds=BuilderApiKeyCreds(key=bk, secret=bs, passphrase=bp)
@@ -169,36 +164,56 @@ def place_order(client, token_id: str, side_label: str, shares: float, price: fl
     return None
 
 
-def sell_at_bid(client, token_id: str, shares: float, side_label: str) -> str | None:
+async def sell_at_bid(
+    client, token_id: str, shares: float, side_label: str, max_retries: int = 3
+) -> str | None:
     """Place a limit SELL at the current best bid. Returns order ID or None."""
     from py_clob_client.order_builder.constants import SELL
     from py_clob_client.clob_types import OrderArgs, OrderType
 
-    try:
-        book = client.get_order_book(token_id)
-        if not book.bids:
-            log.warning("  %s no bids to sell into", side_label)
-            return None
-        best_bid = float(book.bids[0].price)
-        log.info("  %s SELL %.0f @ %.2f (best bid)", side_label, shares, best_bid)
+    for attempt in range(max_retries):
+        try:
+            book = client.get_order_book(token_id)
+            if not book.bids:
+                log.warning("  %s no bids to sell into", side_label)
+                return None
+            best_bid = float(book.bids[0].price)
 
-        order_args = OrderArgs(
-            token_id=token_id,
-            price=best_bid,
-            size=round(shares, 1),
-            side=SELL,
-            expiration=int(time.time()) + 300,  # 5 min expiry
-        )
-        signed = client.create_order(order_args)
-        result = client.post_order(signed, OrderType.GTD)
-        oid = result.get("orderID", result.get("id", ""))
-        if oid:
-            log.info("  %s SELL placed [%s]", side_label, oid[:12])
-            return oid
-        else:
-            log.warning("  %s SELL no order ID: %s", side_label, result)
-    except Exception as e:
-        log.error("  %s SELL failed: %s", side_label, e)
+            # Re-fetch balance on retry in case it changed after cancel
+            sell_shares = shares if attempt == 0 else check_token_balance(client, token_id)
+            if sell_shares <= 0:
+                log.warning("  %s balance now 0 — skipping sell", side_label)
+                return None
+
+            log.info(
+                "  %s SELL %.0f @ %.2f (best bid)%s",
+                side_label,
+                sell_shares,
+                best_bid,
+                f" [retry {attempt}]" if attempt else "",
+            )
+            order_args = OrderArgs(
+                token_id=token_id,
+                price=best_bid,
+                size=round(sell_shares, 1),
+                side=SELL,
+                expiration=int(time.time()) + 300,  # 5 min expiry
+            )
+            signed = client.create_order(order_args)
+            result = client.post_order(signed, OrderType.GTD)
+            oid = result.get("orderID", result.get("id", ""))
+            if oid:
+                log.info("  %s SELL placed [%s]", side_label, oid[:12])
+                return oid
+            else:
+                log.warning("  %s SELL no order ID: %s", side_label, result)
+        except Exception as e:
+            log.error("  %s SELL failed: %s", side_label, e)
+            if attempt < max_retries - 1:
+                wait = 3 * (attempt + 1)
+                log.info("  %s retrying sell in %ds...", side_label, wait)
+                await asyncio.sleep(wait)
+                continue
     return None
 
 
@@ -260,7 +275,8 @@ async def check_bail_out(client, ws_feed: WSBookFeed, past_markets: dict):
                 up_bal,
             )
             cancel_market_orders(client, {up_token, dn_token})
-            sell_at_bid(client, up_token, up_bal, "UP")
+            await asyncio.sleep(3)  # let cancel propagate before selling
+            await sell_at_bid(client, up_token, up_bal, "UP")
             bail = True
         # UP expensive (UP winning) + we only hold DN (UP unfilled) → sell DN
         elif up_ask > BAIL_PRICE and up_bal == 0 and dn_bal > 0:
@@ -271,7 +287,8 @@ async def check_bail_out(client, ws_feed: WSBookFeed, past_markets: dict):
                 dn_bal,
             )
             cancel_market_orders(client, {up_token, dn_token})
-            sell_at_bid(client, dn_token, dn_bal, "DN")
+            await asyncio.sleep(3)  # let cancel propagate before selling
+            await sell_at_bid(client, dn_token, dn_bal, "DN")
             bail = True
 
         if bail:
