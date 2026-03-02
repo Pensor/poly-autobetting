@@ -65,7 +65,8 @@ async def get_market_info(slug: str) -> dict:
         data = r.json()
     if not data:
         raise ValueError(f"No event found for slug: {slug}")
-    m = data[0]["markets"][0]
+    event = data[0]
+    m = event["markets"][0]
     tokens = (
         json.loads(m["clobTokenIds"])
         if isinstance(m["clobTokenIds"], str)
@@ -78,6 +79,7 @@ async def get_market_info(slug: str) -> dict:
         "conditionId": m.get("conditionId", ""),
         "closed": m.get("closed", False),
         "neg_risk": m.get("negRisk", False),
+        "event_id": event.get("id", ""),
     }
 
 
@@ -180,7 +182,9 @@ async def sell_at_bid(
             best_bid = float(book.bids[0].price)
 
             # Re-fetch balance on retry in case it changed after cancel
-            sell_shares = shares if attempt == 0 else check_token_balance(client, token_id)
+            sell_shares = (
+                shares if attempt == 0 else check_token_balance(client, token_id)
+            )
             if sell_shares <= 0:
                 log.warning("  %s balance now 0 — skipping sell", side_label)
                 return None
@@ -475,6 +479,7 @@ async def run():
             log.info("  Starts in: %ds", max(0, secs_until))
             log.info("  UP token:  %s...", mkt["up_token"][:20])
             log.info("  DN token:  %s...", mkt["dn_token"][:20])
+            log.info("  Event ID:  %s.", mkt["event_id"])
             log.info("")
 
             # Subscribe to WS feed for this market's tokens
