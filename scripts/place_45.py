@@ -459,8 +459,14 @@ async def run():
         now = int(time.time())
         timestamps = next_market_timestamps(now)
 
+        utc_hour = time.gmtime(now).tm_hour
+        trading_window = 14 <= utc_hour < 21
+
         for ts in timestamps:
             if ts in placed_markets:
+                continue
+            if not trading_window:
+                log.debug("Outside trading window (UTC %02d:xx), skipping new orders", utc_hour)
                 continue
 
             slug = f"btc-updown-15m-{ts}"
