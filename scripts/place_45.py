@@ -217,40 +217,6 @@ async def sell_at_bid(
     return None
 
 
-async def buy_at_ask(
-    client, token_id: str, shares: float, side_label: str
-) -> str | None:
-    """Place a limit BUY at the current best ask (pivot/momentum entry). Returns order ID or None."""
-    from py_clob_client.order_builder.constants import BUY
-    from py_clob_client.clob_types import OrderArgs, OrderType
-
-    try:
-        book = client.get_order_book(token_id)
-        if not book.asks:
-            log.warning("  %s no asks to pivot into", side_label)
-            return None
-        best_ask = float(book.asks[0].price)
-        log.info("  %s PIVOT BUY %.0f @ %.2f (best ask)", side_label, shares, best_ask)
-        order_args = OrderArgs(
-            token_id=token_id,
-            price=best_ask,
-            size=round(shares, 1),
-            side=BUY,
-            expiration=int(time.time()) + 300,  # 5 min expiry
-        )
-        signed = client.create_order(order_args)
-        result = client.post_order(signed, OrderType.GTD)
-        oid = result.get("orderID", result.get("id", ""))
-        if oid:
-            log.info("  %s PIVOT BUY placed [%s]", side_label, oid[:12])
-            return oid
-        else:
-            log.warning("  %s PIVOT BUY no order ID: %s", side_label, result)
-    except Exception as e:
-        log.error("  %s PIVOT BUY failed: %s", side_label, e)
-    return None
-
-
 def cancel_market_orders(client, token_ids: set):
     """Cancel all live orders for the given token IDs."""
     try:
@@ -300,10 +266,10 @@ async def check_bail_out(client, ws_feed: WSBookFeed, past_markets: dict):
             continue
 
         bail = False
-        # DN expensive (DN winning) + we only hold UP (DN unfilled) → sell UP, pivot into DN
+        # DN expensive (DN winning) + we only hold UP (DN unfilled) → sell UP
         if dn_ask > BAIL_PRICE and dn_bal == 0 and up_bal > 0:
             log.info(
-                "  BAIL: DN ask=%.2f > %.2f, DN unfilled. Selling UP %.0f shares, pivoting into DN",
+                "  BAIL: DN ask=%.2f > %.2f, DN unfilled. Selling UP %.0f shares",
                 dn_ask,
                 BAIL_PRICE,
                 up_bal,
@@ -311,12 +277,11 @@ async def check_bail_out(client, ws_feed: WSBookFeed, past_markets: dict):
             cancel_market_orders(client, {up_token, dn_token})
             await asyncio.sleep(3)  # let cancel propagate before selling
             await sell_at_bid(client, up_token, up_bal, "UP")
-            await buy_at_ask(client, dn_token, SHARES_PER_SIDE, "DN")
             bail = True
-        # UP expensive (UP winning) + we only hold DN (UP unfilled) → sell DN, pivot into UP
+        # UP expensive (UP winning) + we only hold DN (UP unfilled) → sell DN
         elif up_ask > BAIL_PRICE and up_bal == 0 and dn_bal > 0:
             log.info(
-                "  BAIL: UP ask=%.2f > %.2f, UP unfilled. Selling DN %.0f shares, pivoting into UP",
+                "  BAIL: UP ask=%.2f > %.2f, UP unfilled. Selling DN %.0f shares",
                 up_ask,
                 BAIL_PRICE,
                 dn_bal,
@@ -324,7 +289,6 @@ async def check_bail_out(client, ws_feed: WSBookFeed, past_markets: dict):
             cancel_market_orders(client, {up_token, dn_token})
             await asyncio.sleep(3)  # let cancel propagate before selling
             await sell_at_bid(client, dn_token, dn_bal, "DN")
-            await buy_at_ask(client, up_token, SHARES_PER_SIDE, "UP")
             bail = True
 
         if bail:
