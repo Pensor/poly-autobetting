@@ -189,11 +189,13 @@ async def sell_at_bid(
                 log.warning("  %s balance now 0 — skipping sell", side_label)
                 return None
 
+            actual_bal = check_token_balance(client, token_id)
             log.info(
-                "  %s SELL %.0f @ %.2f (best bid)%s",
+                "  %s SELL %.0f @ %.2f (best bid) [on-chain bal=%.1f]%s",
                 side_label,
                 sell_shares,
                 best_bid,
+                actual_bal,
                 f" [retry {attempt}]" if attempt else "",
             )
             order_args = OrderArgs(
