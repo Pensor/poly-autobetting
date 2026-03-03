@@ -18,8 +18,6 @@ import httpx
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.bot.ws_book_feed import WSBookFeed
-
 from dotenv import load_dotenv
 
 load_dotenv(
@@ -217,8 +215,11 @@ async def sell_at_bid(
                 wait = 3 * (attempt + 1)
                 log.info("  %s retrying sell in %ds...", side_label, wait)
                 await asyncio.sleep(wait)
-                continue
     return None
+
+
+def _market_entry(mkt: dict) -> dict:
+    return {"redeemed": False, "up_token": mkt["up_token"], "dn_token": mkt["dn_token"]}
 
 
 def cancel_market_orders(client, token_ids: set):
@@ -239,7 +240,7 @@ def cancel_market_orders(client, token_ids: set):
         log.error("  Cancel failed: %s", e)
 
 
-async def check_bail_out(client, ws_feed: WSBookFeed, past_markets: dict):
+async def check_bail_out(client, past_markets: dict):
     """If one side > 72c and other side has 0 balance → cancel + sell filled side."""
     for ts, info in list(past_markets.items()):
         if info.get("bailed") or info.get("redeemed"):
@@ -253,19 +254,15 @@ async def check_bail_out(client, ws_feed: WSBookFeed, past_markets: dict):
         if info.get("closed"):
             continue  # already resolved, redeem handles it
 
-        # Get prices from WS feed; fall back to REST if not subscribed
-        up_ask = ws_feed.get_best_ask(up_token)
-        dn_ask = ws_feed.get_best_ask(dn_token)
+        try:
+            up_book = client.get_order_book(up_token)
+            dn_book = client.get_order_book(dn_token)
+            up_ask = float(up_book.asks[0].price) if up_book.asks else None
+            dn_ask = float(dn_book.asks[0].price) if dn_book.asks else None
+        except Exception:
+            continue
         if up_ask is None or dn_ask is None:
-            try:
-                up_book = client.get_order_book(up_token)
-                dn_book = client.get_order_book(dn_token)
-                up_ask = float(up_book.asks[0].price) if up_book.asks else None
-                dn_ask = float(dn_book.asks[0].price) if dn_book.asks else None
-            except Exception:
-                continue
-        if up_ask is None or dn_ask is None:
-            continue  # no price data available
+            continue
 
         if up_ask <= BAIL_PRICE and dn_ask <= BAIL_PRICE:
             continue  # no bail needed
@@ -435,9 +432,6 @@ async def run():
     else:
         log.info("Auto-redeem DISABLED (no builder creds).\n")
 
-    # Start WebSocket feed for real-time prices
-    ws_feed = WSBookFeed()
-
     placed_markets = set()
     # Track past markets: {ts: {redeemed, bailed, up_token, dn_token, closed}}
     past_markets = {}
@@ -452,11 +446,7 @@ async def run():
         slug = f"btc-updown-15m-{scan_ts}"
         try:
             mkt = await get_market_info(slug)
-            past_markets[scan_ts] = {
-                "redeemed": False,
-                "up_token": mkt["up_token"],
-                "dn_token": mkt["dn_token"],
-            }
+            past_markets[scan_ts] = _market_entry(mkt)
             placed_markets.add(scan_ts)
         except Exception:
             pass
@@ -496,12 +486,6 @@ async def run():
             log.info("  Event ID:  %s.", mkt["event_id"])
             log.info("")
 
-            # Subscribe to WS feed for this market's tokens
-            if not ws_feed.is_connected:
-                await ws_feed.start([mkt["up_token"], mkt["dn_token"]])
-            else:
-                await ws_feed.subscribe([mkt["up_token"], mkt["dn_token"]])
-
             # Skip if we already hold tokens (filled from previous run or restart)
             up_bal = check_token_balance(client, mkt["up_token"])
             dn_bal = check_token_balance(client, mkt["dn_token"])
@@ -512,11 +496,7 @@ async def run():
                     dn_bal,
                 )
                 placed_markets.add(ts)
-                past_markets[ts] = {
-                    "redeemed": False,
-                    "up_token": mkt["up_token"],
-                    "dn_token": mkt["dn_token"],
-                }
+                past_markets[ts] = _market_entry(mkt)
                 continue
 
             # Skip if we already have live orders on this market
@@ -554,34 +534,15 @@ async def run():
             log.info("")
 
             placed_markets.add(ts)
-            past_markets[ts] = {
-                "redeemed": False,
-                "up_token": mkt["up_token"],
-                "dn_token": mkt["dn_token"],
-            }
+            past_markets[ts] = _market_entry(mkt)
 
-        # Log WS prices for active markets
-        # for ts, info in past_markets.items():
-        #     if info.get("bailed") or info.get("redeemed"):
-        #         continue
-        #     up_ask = ws_feed.get_best_ask(info.get("up_token", ""))
-        #     dn_ask = ws_feed.get_best_ask(info.get("dn_token", ""))
-        #     if up_ask is not None or dn_ask is not None:
-        #         log.info(
-        #             "  [%d] WS prices: UP ask=%.2f  DN ask=%.2f",
-        #             ts,
-        #             up_ask or 0,
-        #             dn_ask or 0,
-        #         )
-
-        # Bail-out disabled — holding through resolution is +EV at 45c entry
-        await check_bail_out(client, ws_feed, past_markets)
+        await check_bail_out(client, past_markets)
 
         # Try redeeming resolved markets
         await try_redeem_all(client, relayer, past_markets)
 
         # Wait and check for next market
-        await asyncio.sleep(10)  # 10s for faster WS-based bail detection
+        await asyncio.sleep(10)
 
         # Clean very old entries (keep last 2 hours for redemption)
         past_markets = {ts: v for ts, v in past_markets.items() if ts > now - 7200}
