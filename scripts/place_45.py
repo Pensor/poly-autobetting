@@ -253,11 +253,19 @@ async def check_bail_out(client, ws_feed: WSBookFeed, past_markets: dict):
         if info.get("closed"):
             continue  # already resolved, redeem handles it
 
-        # Get prices from WS feed (real-time, no API call)
+        # Get prices from WS feed; fall back to REST if not subscribed
         up_ask = ws_feed.get_best_ask(up_token)
         dn_ask = ws_feed.get_best_ask(dn_token)
         if up_ask is None or dn_ask is None:
-            continue  # no WS data yet
+            try:
+                up_book = client.get_order_book(up_token)
+                dn_book = client.get_order_book(dn_token)
+                up_ask = float(up_book.asks[0].price) if up_book.asks else None
+                dn_ask = float(dn_book.asks[0].price) if dn_book.asks else None
+            except Exception:
+                continue
+        if up_ask is None or dn_ask is None:
+            continue  # no price data available
 
         if up_ask <= BAIL_PRICE and dn_ask <= BAIL_PRICE:
             continue  # no bail needed
