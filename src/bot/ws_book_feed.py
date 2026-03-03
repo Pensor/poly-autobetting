@@ -174,9 +174,21 @@ class WSBookFeed:
                 )
                 await asyncio.sleep(self._backoff_s)
                 self._backoff_s = min(self._backoff_s * 2, MAX_BACKOFF_S)
+            else:
+                # Server closed the connection cleanly (async-for exhausted)
+                self._connected.clear()
+                self._ws = None
+                if not self._stop_event.is_set():
+                    logger.warning(
+                        "WS feed disconnected (server closed) — reconnecting in %.1fs",
+                        self._backoff_s,
+                    )
+                    await asyncio.sleep(self._backoff_s)
+                    self._backoff_s = min(self._backoff_s * 2, MAX_BACKOFF_S)
 
         self._connected.clear()
         self._ws = None
+        logger.info("WS book feed stopped")
 
     async def _send_subscribe(self, token_ids: list[str]) -> None:
         """Send subscribe message for token IDs."""
