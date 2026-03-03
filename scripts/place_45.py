@@ -183,8 +183,8 @@ async def sell_at_bid(
             sell_shares = (
                 shares if attempt == 0 else check_token_balance(client, token_id)
             )
-            if sell_shares <= 0:
-                log.warning("  %s balance now 0 — skipping sell", side_label)
+            if sell_shares < 1.0:
+                log.warning("  %s balance %.4f too small to sell", side_label, sell_shares)
                 return None
 
             log.info(
@@ -276,7 +276,7 @@ async def check_bail_out(client, past_markets: dict):
 
         bail = False
         # DN expensive (DN winning) + we only hold UP (DN unfilled) → sell UP
-        if dn_ask > BAIL_PRICE and dn_bal == 0 and up_bal > 0:
+        if dn_ask > BAIL_PRICE and dn_bal == 0 and up_bal >= 1.0:
             log.info(
                 "  BAIL: DN ask=%.2f > %.2f, DN unfilled. Selling UP %.0f shares",
                 dn_ask,
@@ -288,7 +288,7 @@ async def check_bail_out(client, past_markets: dict):
             await sell_at_bid(client, up_token, up_bal, "UP")
             bail = True
         # UP expensive (UP winning) + we only hold DN (UP unfilled) → sell DN
-        elif up_ask > BAIL_PRICE and up_bal == 0 and dn_bal > 0:
+        elif up_ask > BAIL_PRICE and up_bal == 0 and dn_bal >= 1.0:
             log.info(
                 "  BAIL: UP ask=%.2f > %.2f, UP unfilled. Selling DN %.0f shares",
                 up_ask,
@@ -464,7 +464,10 @@ async def run():
             if ts in placed_markets:
                 continue
             if not trading_window:
-                log.debug("Outside trading window (UTC %02d:xx), skipping new orders", utc_hour)
+                log.debug(
+                    "Outside trading window (UTC %02d:xx), skipping new orders",
+                    utc_hour,
+                )
                 continue
 
             slug = f"btc-updown-15m-{ts}"
