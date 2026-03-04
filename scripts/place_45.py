@@ -171,7 +171,7 @@ async def sell_at_bid(
 ) -> str | None:
     """Place a limit SELL at the current best bid for all held tokens. Returns order ID or None."""
     from py_clob_client.order_builder.constants import SELL
-    from py_clob_client.clob_types import OrderArgs, OrderType
+    from py_clob_client.clob_types import OrderArgs, OrderType, BalanceAllowanceParams, AssetType
 
     for attempt in range(max_retries):
         try:
@@ -180,8 +180,14 @@ async def sell_at_bid(
                 log.warning("  %s no bids to sell into", side_label)
                 return None
             best_bid = float(book.bids[0].price)
+            best_bid_size = float(book.bids[0].size)
+            log.info("  %s order book: %d bids, best=%.2f sz=%.1f", side_label, len(book.bids), best_bid, best_bid_size)
 
-            sell_shares = check_token_balance(client, token_id)
+            raw = client.get_balance_allowance(
+                BalanceAllowanceParams(asset_type=AssetType.CONDITIONAL, token_id=token_id, signature_type=2)
+            )
+            log.info("  %s raw balance_allowance: %s", side_label, raw)
+            sell_shares = int(raw.get("balance", "0")) / 1e6
             if sell_shares <= 0:
                 log.warning("  %s balance now 0 — skipping sell", side_label)
                 return None
