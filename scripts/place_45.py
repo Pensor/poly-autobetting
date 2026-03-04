@@ -167,9 +167,9 @@ def place_order(client, token_id: str, side_label: str, shares: float, price: fl
 
 
 async def sell_at_bid(
-    client, token_id: str, shares: float, side_label: str, max_retries: int = 3
+    client, token_id: str, side_label: str, max_retries: int = 3
 ) -> str | None:
-    """Place a limit SELL at the current best bid. Returns order ID or None."""
+    """Place a limit SELL at the current best bid for all held tokens. Returns order ID or None."""
     from py_clob_client.order_builder.constants import SELL
     from py_clob_client.clob_types import OrderArgs, OrderType
 
@@ -181,15 +181,15 @@ async def sell_at_bid(
                 return None
             best_bid = float(book.bids[0].price)
 
-            actual_bal = check_token_balance(client, token_id)
-            sell_shares = actual_bal
+            sell_shares = check_token_balance(client, token_id)
             if sell_shares <= 0:
+                log.warning("  %s balance now 0 — skipping sell", side_label)
+                return None
             log.info(
-                "  %s SELL %.0f @ %.2f (best bid) [on-chain bal=%.1f]%s",
+                "  %s SELL %.1f @ %.2f (best bid)%s",
                 side_label,
                 sell_shares,
                 best_bid,
-                actual_bal,
                 f" [retry {attempt}]" if attempt else "",
             )
             order_args = OrderArgs(
@@ -284,7 +284,7 @@ async def check_bail_out(client, ws_feed: WSBookFeed, past_markets: dict):
             )
             cancel_market_orders(client, {up_token, dn_token})
             await asyncio.sleep(3)  # let cancel propagate before selling
-            await sell_at_bid(client, up_token, up_bal, "UP")
+            await sell_at_bid(client, up_token, "UP")
             bail = True
         # UP expensive (UP winning) + we only hold DN (UP unfilled) → sell DN
         elif up_ask > BAIL_PRICE and up_bal == 0 and dn_bal > 0:
@@ -296,7 +296,7 @@ async def check_bail_out(client, ws_feed: WSBookFeed, past_markets: dict):
             )
             cancel_market_orders(client, {up_token, dn_token})
             await asyncio.sleep(3)  # let cancel propagate before selling
-            await sell_at_bid(client, dn_token, dn_bal, "DN")
+            await sell_at_bid(client, dn_token, "DN")
             bail = True
 
         if bail:
