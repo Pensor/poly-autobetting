@@ -181,15 +181,9 @@ async def sell_at_bid(
                 return None
             best_bid = float(book.bids[0].price)
 
-            # Re-fetch balance on retry in case it changed after cancel
-            sell_shares = (
-                shares if attempt == 0 else check_token_balance(client, token_id)
-            )
-            if sell_shares <= 0:
-                log.warning("  %s balance now 0 — skipping sell", side_label)
-                return None
-
             actual_bal = check_token_balance(client, token_id)
+            sell_shares = actual_bal
+            if sell_shares <= 0:
             log.info(
                 "  %s SELL %.0f @ %.2f (best bid) [on-chain bal=%.1f]%s",
                 side_label,
