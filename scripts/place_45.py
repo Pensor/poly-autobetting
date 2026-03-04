@@ -9,6 +9,7 @@ Usage: python scripts/place_45.py
 import asyncio
 import json
 import logging
+import math
 import os
 import sys
 import time
@@ -166,60 +167,39 @@ def place_order(client, token_id: str, side_label: str, shares: float, price: fl
     return None
 
 
-async def sell_at_bid(
-    client, token_id: str, side_label: str, max_retries: int = 3
-) -> str | None:
+async def sell_at_bid(client, token_id: str, side_label: str) -> str | None:
     """Place a limit SELL at the current best bid for all held tokens. Returns order ID or None."""
     from py_clob_client.order_builder.constants import SELL
-    from py_clob_client.clob_types import OrderArgs, OrderType, BalanceAllowanceParams, AssetType
+    from py_clob_client.clob_types import OrderArgs, OrderType
 
-    for attempt in range(max_retries):
-        try:
-            book = client.get_order_book(token_id)
-            if not book.bids:
-                log.warning("  %s no bids to sell into", side_label)
-                return None
-            best_bid = float(book.bids[0].price)
-            best_bid_size = float(book.bids[0].size)
-            log.info("  %s order book: %d bids, best=%.2f sz=%.1f", side_label, len(book.bids), best_bid, best_bid_size)
+    sell_shares = check_token_balance(client, token_id)
+    if sell_shares <= 0:
+        log.warning("  %s balance 0 — skipping sell", side_label)
+        return None
 
-            raw = client.get_balance_allowance(
-                BalanceAllowanceParams(asset_type=AssetType.CONDITIONAL, token_id=token_id, signature_type=2)
-            )
-            log.info("  %s raw balance_allowance: %s", side_label, raw)
-            sell_shares = int(raw.get("balance", "0")) / 1e6
-            if sell_shares <= 0:
-                log.warning("  %s balance now 0 — skipping sell", side_label)
-                return None
-            log.info(
-                "  %s SELL %.1f @ %.2f (best bid)%s",
-                side_label,
-                sell_shares,
-                best_bid,
-                f" [retry {attempt}]" if attempt else "",
-            )
-            order_args = OrderArgs(
-                token_id=token_id,
-                price=best_bid,
-                size=round(sell_shares, 1),
-                side=SELL,
-                expiration=int(time.time()) + 300,  # 5 min expiry
-            )
-            signed = client.create_order(order_args)
-            result = client.post_order(signed, OrderType.GTD)
-            oid = result.get("orderID", result.get("id", ""))
-            if oid:
-                log.info("  %s SELL placed [%s]", side_label, oid[:12])
-                return oid
-            else:
-                log.warning("  %s SELL no order ID: %s", side_label, result)
-        except Exception as e:
-            log.error("  %s SELL failed: %s", side_label, e)
-            if attempt < max_retries - 1:
-                wait = 3 * (attempt + 1)
-                log.info("  %s retrying sell in %ds...", side_label, wait)
-                await asyncio.sleep(wait)
-                continue
+    try:
+        book = client.get_order_book(token_id)
+        if not book.bids:
+            log.warning("  %s no bids to sell into", side_label)
+            return None
+        best_bid = float(book.bids[0].price)
+        log.info("  %s SELL %.1f @ %.2f (best bid)", side_label, sell_shares, best_bid)
+        order_args = OrderArgs(
+            token_id=token_id,
+            price=best_bid,
+            size=math.floor(sell_shares * 10) / 10,
+            side=SELL,
+            expiration=int(time.time()) + 300,
+        )
+        signed = client.create_order(order_args)
+        result = client.post_order(signed, OrderType.GTD)
+        oid = result.get("orderID", result.get("id", ""))
+        if oid:
+            log.info("  %s SELL placed [%s]", side_label, oid[:12])
+            return oid
+        log.warning("  %s SELL no order ID: %s", side_label, result)
+    except Exception as e:
+        log.error("  %s SELL failed: %s", side_label, e)
     return None
 
 
