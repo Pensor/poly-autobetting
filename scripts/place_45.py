@@ -167,7 +167,7 @@ def place_order(client, token_id: str, side_label: str, shares: float, price: fl
     return None
 
 
-async def sell_at_bid(client, token_id: str, side_label: str) -> str | None:
+def sell_at_bid(client, token_id: str, side_label: str) -> str | None:
     """Place a limit SELL at the current best bid for all held tokens. Returns order ID or None."""
     from py_clob_client.order_builder.constants import SELL
     from py_clob_client.clob_types import OrderArgs, OrderType
@@ -269,8 +269,7 @@ async def check_bail_out(client, ws_feed: WSBookFeed, past_markets: dict):
                 up_bal,
             )
             cancel_market_orders(client, {up_token, dn_token})
-            await asyncio.sleep(3)  # let cancel propagate before selling
-            await sell_at_bid(client, up_token, "UP")
+            sell_at_bid(client, up_token, "UP")
             bail = True
         # UP expensive (UP winning) + we only hold DN (UP unfilled) → sell DN
         elif up_ask > BAIL_PRICE and up_bal == 0 and dn_bal > 0:
@@ -281,8 +280,7 @@ async def check_bail_out(client, ws_feed: WSBookFeed, past_markets: dict):
                 dn_bal,
             )
             cancel_market_orders(client, {up_token, dn_token})
-            await asyncio.sleep(3)  # let cancel propagate before selling
-            await sell_at_bid(client, dn_token, "DN")
+            sell_at_bid(client, dn_token, "DN")
             bail = True
 
         if bail:
@@ -456,7 +454,10 @@ async def run():
             if ts in placed_markets:
                 continue
             if not trading_window:
-                log.debug("Outside trading window (UTC %02d:xx), skipping new orders", utc_hour)
+                log.debug(
+                    "Outside trading window (UTC %02d:xx), skipping new orders",
+                    utc_hour,
+                )
                 continue
 
             slug = f"btc-updown-15m-{ts}"
